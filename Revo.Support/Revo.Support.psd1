@@ -12,7 +12,7 @@
 RootModule = 'Revo.Support.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.1.0'
+ModuleVersion = '2.0.0'
 
 # Supported PSEditions
 CompatiblePSEditions = 'Core'
@@ -69,8 +69,7 @@ PowerShellVersion = '6.0'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @(  "New-RevoAzAccess",
-                        "Get-RevoAzSubscriptions"
+FunctionsToExport = @(  "Import-RevoCertificate"
 )
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
@@ -97,19 +96,19 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @("Azure","Get","ServicePrincipal")
+        Tags = @("PowerShell", "Linux", "Windows")
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'http://creativecommons.org/licenses/by-sa/4.0/'
 
         # A URL to the main website for this project.
         # ProjectUri = ''
 
         # A URL to an icon representing this module.
-        IconUri = 'https://cdn0.iconfinder.com/data/icons/octicons/1024/circuit-board-512.png'
+        IconUri = 'https://cdn1.iconfinder.com/data/icons/space-flat-galaxy-radio/512/robot-512.png'
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Introducing New-RevoAzAccess for access with Service Principal or with your user.'
+        ReleaseNotes = ''
 
         # Prerelease string of this module
         # Prerelease = ''
