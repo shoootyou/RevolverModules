@@ -6,14 +6,20 @@ function Import-RevoCertificate{
         [ValidateNotNull()]
         [parameter(Mandatory=$true)]
         [ValidateNotNull()]
-        [securestring]$CertificatePassword
+        [securestring]$CertificatePassword,
+        [parameter(Mandatory=$true)]
+        [ValidateSet("CurrentUser","LocalMachine", IgnoreCase = $true)]
+        [string]$StoreType
     )
     begin{
-
+        if(!$env:windir){
+            Write-Warning "Currently Linux systems only supports CurrentUser Store"
+            $StoreType = "CurrentUser"
+        }
     }
     process{
         $StoreName = [System.Security.Cryptography.X509Certificates.StoreName]::My 
-        $StoreLocation = [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser 
+        $StoreLocation = [System.Security.Cryptography.X509Certificates.StoreLocation]::$StoreType 
         $Store = [System.Security.Cryptography.X509Certificates.X509Store]::new($StoreName, $StoreLocation) 
         $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite) 
         $Flag = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable 
@@ -22,6 +28,30 @@ function Import-RevoCertificate{
     }
     end{
         return $Certificate
-        $Store.Close()
+        $Store.Close() 
+    }
+}
+
+function Get-RevoCertificates{
+    param(
+        [parameter(Mandatory=$true)]
+        [ValidateSet("CurrentUser","LocalMachine", IgnoreCase = $true)]
+        [string]$StoreType
+    )
+    begin{
+        if(!$env:windir){
+            Write-Warning "Currently Linux systems only supports CurrentUser Store"
+            $StoreType = "CurrentUser"
+        }
+    }
+    process{
+        $StoreName = [System.Security.Cryptography.X509Certificates.StoreName]::My 
+        $StoreLocation = [System.Security.Cryptography.X509Certificates.StoreLocation]::$StoreType 
+        $Store = [System.Security.Cryptography.X509Certificates.X509Store]::new($StoreName, $StoreLocation) 
+        $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly) 
+    }
+    end{
+        return $Store.Certificates
+        $Store.Close() 
     }
 }
