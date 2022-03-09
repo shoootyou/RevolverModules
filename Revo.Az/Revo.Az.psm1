@@ -668,17 +668,6 @@ function Get-RevoAzResourceGroups{
     }
 }
 
-#-------------------------------------------------------------------------------------------
-
-
-
-#-------------------------------------------------------------------------------------------
-
-
-
-
-
-
 function Get-RevoAzResources{
     param(
         [parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$True)]
