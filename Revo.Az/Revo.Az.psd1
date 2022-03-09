@@ -12,7 +12,7 @@
 RootModule = 'Revo.Az.psm1'
 
 # Version number of this module.
-ModuleVersion = '2.0.0'
+ModuleVersion = '2.0.1'
 
 # Supported PSEditions
 CompatiblePSEditions = 'Core'
@@ -70,6 +70,7 @@ PowerShellVersion = '6.0'
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @(  "New-RevoAzAccess",
+                        "New-RevoAzMSALAccess",
                         "Get-RevoAzSubscriptions",                        
                         "Get-RevoAzTenants",
                         "Get-RevoAzLocations",

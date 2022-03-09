@@ -8,7 +8,12 @@ function New-RevoAzAccess{
         [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
         [string]$CertificateThumbprint,
         [parameter(Mandatory=$false, ParameterSetName = "UserAuthentication")]
-        [switch]$DeviceAuthentication
+        [switch]$DeviceAuthentication,
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [ValidateSet('CurrentUser','LocalMachine')]
+        [String]$CertificateStore = 'CurrentUser',
+        [parameter(Mandatory=$false, ParameterSetName = "ServicePrincipal")]
+        [switch]$SecureOutput
     )
     begin{
         $ErrorActionPreference = "SilentlyContinue"
@@ -16,110 +21,121 @@ function New-RevoAzAccess{
     process{
 
         if ($CertificateThumbprint) {
+            if ($null -eq $env:windir -and $CertificateStore -eq 'LocalMachine') {
+                Write-Warning 'On Linux systems you must use Currentuser as value of CertificateStore'
+                $CertificateStore = 'CurrentUser'
+            }
+            
             $StoreName = [System.Security.Cryptography.X509Certificates.StoreName]::My 
-            $StoreLocation = [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser 
+            $StoreLocation = [System.Security.Cryptography.X509Certificates.StoreLocation]::$CertificateStore
             $Store = [System.Security.Cryptography.X509Certificates.X509Store]::new($StoreName, $StoreLocation) 
             $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
             $Certificate = $Store.Certificates | Where-Object {$_.Thumbprint -eq $CertificateThumbprint}
 
-            $Scope = "https://graph.microsoft.com/.default"
-            $Resource = "https://management.core.windows.net/"
-    
-            # Create base64 hash of certificate
-            $CertificateBase64Hash = [System.Convert]::ToBase64String($Certificate.GetCertHash())
-    
-            # Create JWT timestamp for expiration
-            $StartDate = (Get-Date "1970-01-01T00:00:00Z").ToUniversalTime()
-            $JWTExpirationTimeSpan = (New-TimeSpan -Start $StartDate -End (Get-Date).ToUniversalTime().AddMinutes(60)).TotalSeconds
-            $JWTExpiration = [math]::Round($JWTExpirationTimeSpan,0)
-    
-            # Create JWT validity start timestamp
-            $NotBeforeExpirationTimeSpan = (New-TimeSpan -Start $StartDate -End ((Get-Date).ToUniversalTime())).TotalSeconds
-            $NotBefore = [math]::Round($NotBeforeExpirationTimeSpan,0)
-    
-            # Create JWT header
-            $JWTHeader = @{
-                alg = "RS256"
-                typ = "JWT"
-                # Use the CertificateBase64Hash and replace/strip to match web encoding of base64
-                x5t = $CertificateBase64Hash -replace '\+','-' -replace '/','_' -replace '='
+            if ($null -eq $Certificate) {
+                $ParseInformation = $null
+                $ParseCertificate = $null
             }
-    
-            # Create JWT payload
-            $JWTPayLoad = @{
-                # What endpoint is allowed to use this JWT
-                aud = "https://login.microsoftonline.com/$TenantID/oauth2/token"
-                # Expiration timestamp
-                exp = $JWTExpiration
-                # Issuer = your application
-                iss = $ClientID
-                # JWT ID: random guid
-                jti = [guid]::NewGuid()
-                # Not to be used before
-                nbf = $NotBefore
-                # JWT Subject
-                sub = $ClientID
-            }
-    
-            # Convert header and payload to base64
-            $JWTHeaderToByte = [System.Text.Encoding]::UTF8.GetBytes(($JWTHeader | ConvertTo-Json))
-            $EncodedHeader = [System.Convert]::ToBase64String($JWTHeaderToByte)
-    
-            $JWTPayLoadToByte =  [System.Text.Encoding]::UTF8.GetBytes(($JWTPayload | ConvertTo-Json))
-            $EncodedPayload = [System.Convert]::ToBase64String($JWTPayLoadToByte)
-    
-            # Join header and Payload with "." to create a valid (unsigned) JWT
-            $JWT = $EncodedHeader + "." + $EncodedPayload
-    
-            # Get the private key object of your certificate
-            $PrivateKey = $Certificate.PrivateKey
-    
-            # Define RSA signature and hashing algorithm
-            $RSAPadding = [Security.Cryptography.RSASignaturePadding]::Pkcs1
-            $HashAlgorithm = [Security.Cryptography.HashAlgorithmName]::SHA256
-    
-            # Create a signature of the JWT
-            $Signature = [Convert]::ToBase64String(
-                $PrivateKey.SignData([System.Text.Encoding]::UTF8.GetBytes($JWT),$HashAlgorithm,$RSAPadding)
-            ) -replace '\+','-' -replace '/','_' -replace '='
-    
-            # Join the signature to the JWT with "."
-            $JWT = $JWT + "." + $Signature
-    
-            # Create a hash with body parameters
-            $Body = @{
-                client_id = $ClientID
-                client_assertion = $JWT
-                client_assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-                scope = $Scope
-                grant_type = "client_credentials"
-                resource = $Resource
-            }
-    
-            $Url = "https://login.microsoftonline.com/$TenantID/oauth2/token"
-    
-            # Use the self-generated JWT as Authorization
-            $Header = @{
-                Authorization = "Bearer $JWT"
-            }
-    
-            # Splat the parameters for Invoke-Restmethod for cleaner code
-            $PostSplat = @{
-                ContentType = 'application/x-www-form-urlencoded'
-                Method = 'POST'
-                Body = $Body
-                Uri = $Url
-                Headers = $Header
-            }
-    
-            $AccessToken = Invoke-RestMethod @PostSplat
+            else {
+                $Scope = "https://graph.microsoft.com/.default"
+                $Resource = "https://management.core.windows.net/"
+        
+                # Create base64 hash of certificate
+                $CertificateBase64Hash = [System.Convert]::ToBase64String($Certificate.GetCertHash())
+        
+                # Create JWT timestamp for expiration
+                $StartDate = (Get-Date "1970-01-01T00:00:00Z").ToUniversalTime()
+                $JWTExpirationTimeSpan = (New-TimeSpan -Start $StartDate -End (Get-Date).ToUniversalTime().AddMinutes(60)).TotalSeconds
+                $JWTExpiration = [math]::Round($JWTExpirationTimeSpan,0)
+        
+                # Create JWT validity start timestamp
+                $NotBeforeExpirationTimeSpan = (New-TimeSpan -Start $StartDate -End ((Get-Date).ToUniversalTime())).TotalSeconds
+                $NotBefore = [math]::Round($NotBeforeExpirationTimeSpan,0)
+        
+                # Create JWT header
+                $JWTHeader = @{
+                    alg = "RS256"
+                    typ = "JWT"
+                    # Use the CertificateBase64Hash and replace/strip to match web encoding of base64
+                    x5t = $CertificateBase64Hash -replace '\+','-' -replace '/','_' -replace '='
+                }
+        
+                # Create JWT payload
+                $JWTPayLoad = @{
+                    # What endpoint is allowed to use this JWT
+                    aud = "https://login.microsoftonline.com/$TenantID/oauth2/token"
+                    # Expiration timestamp
+                    exp = $JWTExpiration
+                    # Issuer = your application
+                    iss = $ClientID
+                    # JWT ID: random guid
+                    jti = [guid]::NewGuid()
+                    # Not to be used before
+                    nbf = $NotBefore
+                    # JWT Subject
+                    sub = $ClientID
+                }
+        
+                # Convert header and payload to base64
+                $JWTHeaderToByte = [System.Text.Encoding]::UTF8.GetBytes(($JWTHeader | ConvertTo-Json))
+                $EncodedHeader = [System.Convert]::ToBase64String($JWTHeaderToByte)
+        
+                $JWTPayLoadToByte =  [System.Text.Encoding]::UTF8.GetBytes(($JWTPayload | ConvertTo-Json))
+                $EncodedPayload = [System.Convert]::ToBase64String($JWTPayLoadToByte)
+        
+                # Join header and Payload with "." to create a valid (unsigned) JWT
+                $JWT = $EncodedHeader + "." + $EncodedPayload
+        
+                # Get the private key object of your certificate
+                $PrivateKey = $Certificate.PrivateKey
+        
+                # Define RSA signature and hashing algorithm
+                $RSAPadding = [Security.Cryptography.RSASignaturePadding]::Pkcs1
+                $HashAlgorithm = [Security.Cryptography.HashAlgorithmName]::SHA256
+        
+                # Create a signature of the JWT
+                $Signature = [Convert]::ToBase64String(
+                    $PrivateKey.SignData([System.Text.Encoding]::UTF8.GetBytes($JWT),$HashAlgorithm,$RSAPadding)
+                ) -replace '\+','-' -replace '/','_' -replace '='
+        
+                # Join the signature to the JWT with "."
+                $JWT = $JWT + "." + $Signature
+        
+                # Create a hash with body parameters
+                $Body = @{
+                    client_id = $ClientID
+                    client_assertion = $JWT
+                    client_assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                    scope = $Scope
+                    grant_type = "client_credentials"
+                    resource = $Resource
+                }
+        
+                $Url = "https://login.microsoftonline.com/$TenantID/oauth2/token"
+        
+                # Use the self-generated JWT as Authorization
+                $Header = @{
+                    Authorization = "Bearer $JWT"
+                }
+        
+                # Splat the parameters for Invoke-Restmethod for cleaner code
+                $PostSplat = @{
+                    ContentType = 'application/x-www-form-urlencoded'
+                    Method = 'POST'
+                    Body = $Body
+                    Uri = $Url
+                    Headers = $Header
+                }
+        
+                $AccessToken = Invoke-RestMethod @PostSplat
 
-            $ParseInformation = [pscustomobject]@{
-                'Token' = $AccessToken.access_token;
-                'ExpiresOn' = (Get-Date -UnixTimeSeconds $AccessToken.expires_on);
-                'Type' = $AccessToken.token_type;
-                'TenantId' = $TenantID;
-                'UserId' = $ClientID;
+                $ParseInformation = [pscustomobject]@{
+                    'Token' = $AccessToken.access_token;
+                    'ExpiresOn' = (Get-Date -UnixTimeSeconds $AccessToken.expires_on);
+                    'Type' = $AccessToken.token_type;
+                    'TenantId' = $TenantID;
+                    'UserId' = $ClientID;
+                }
             }
 
         }
@@ -133,7 +149,12 @@ function New-RevoAzAccess{
                 else{
                     Import-Module -Name Az.Accounts -Scope CurrentUser
                 }
-                Connect-AzAccount -UseDeviceAuthentication -ErrorAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+                if($null -eq $TenantID){
+                    Connect-AzAccount -UseDeviceAuthentication -ErrorAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+                }
+                else{
+                    Connect-AzAccount -Tenant $TenantID -UseDeviceAuthentication -ErrorAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+                }
                 $AccessToken = Get-AzAccessToken
 
                 $ParseInformation = [pscustomobject]@{
@@ -153,7 +174,13 @@ function New-RevoAzAccess{
                 else{
                     Import-Module -Name Az.Accounts -Scope Local
                 }
-                Connect-AzAccount -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+
+                if($null -eq $TenantID){
+                    Connect-AzAccount -ErrorAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+                }
+                else{
+                    Connect-AzAccount -Tenant $TenantID -ErrorAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+                }
                 $AccessToken = Get-AzAccessToken
 
                 $ParseInformation = [pscustomobject]@{
@@ -169,78 +196,83 @@ function New-RevoAzAccess{
     }
     end{
         $ErrorActionPreference = "Continue"
-        if($null -eq $ParseInformation){
+        if ($null -eq $ParseInformation -and $null -eq $ParseCertificate) {
+            Write-Error "Certificate not found on StoreLocation. Please install first."
+        }
+        elseif($null -eq $ParseInformation){
             Write-Error "Cannot get the bearer token with the supplied parameters. Please check the values."
         }
         else{
             New-Variable -Name "RevoAzBearerToken" -Value ($ParseInformation.Type + " " + $ParseInformation.Token) -Scope Global -Force -ErrorAction SilentlyContinue
             New-Variable -Name "RevoAzBearerTokenDetails" -Value $ParseInformation -Scope Global -Force -ErrorAction SilentlyContinue
-            Return $ParseInformation.Type + " " + $ParseInformation.Token
+            if(!$SecureOutput){
+                Return $ParseInformation.Type + " " + $ParseInformation.Token
+            }
         }
     }
 }
 
-function Get-RevoAzSubscriptions{
+function New-RevoAzMSALAccess{
     param(
-
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [parameter(Mandatory=$false, ParameterSetName = "UserAuthentication")]
+        [string]$TenantID,
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [string]$ClientID,
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [string]$CertificateLocation,
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [securestring]$CertificatePassword,
+        [parameter(Mandatory=$false, ParameterSetName = "ServicePrincipal")]
+        [switch]$SecureOutput
     )
     begin{
         $ErrorActionPreference = "SilentlyContinue"
     }
     process{
-        $AzureManagement = "https://management.azure.com"
-        $ResourceURL = $AzureManagement + "/subscriptions?api-version=2020-01-01"
 
-        $AccessToken = Get-Variable -Name "RevoAzBearerToken" -ValueOnly -ErrorAction SilentlyContinue
-        if($null -ne $AccessToken){
-            $Headers = @{}
-            $Headers.Add("Authorization",$AccessToken)
-    
-            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers
-            $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            do{
-                $AzSubscriptions += $WebResponse.value
-                $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
-                $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            }
-            until($null -eq $WebResponse.nextLink)
+        $Module = Get-Module -Name MSAL.PS -ListAvailable
+        if($null -eq $Module){
+            Install-Module -Name MSAL.PS -Scope CurrentUser -Force -Confirm:$false;
+            Import-Module -Name MSAL.PS -Scope CurrentUser
+        }
+        else{
+            Import-Module -Name MSAL.PS -Scope CurrentUser
+        }
 
-            $Output = New-Object -TypeName System.Collections.ArrayList
-            foreach($Subscription in $AzSubscriptions){
-                if($null -eq $Subscription.managedByTenants.TenantId){
-                    $IsManaged = $false;
-                }
-                else{
-                    $IsManaged = $true;
-                }
-                $ParseInformation = [pscustomobject]@{
-                    'DisplayName' = $Subscription.displayName;
-                    'SubscriptionId' = $Subscription.subscriptionId;
-                    'IsManaged' = $IsManaged;
-                    'State' = $Subscription.state;
-                    'TenantId' = $Subscription.tenantId;
-                    'AuthorizationSource' = $Subscription.authorizationSource;
-                    'LocationPlacementId' = $Subscription.subscriptionPolicies.locationPlacementId;
-                    'QuotaId' = $Subscription.subscriptionPolicies.quotaId;
-                    'SpendingLimit' = $Subscription.subscriptionPolicies.spendingLimit;
-                    'ManagedByTenants' = [string]($Subscription.managedByTenants.TenantId -Join ",");
-                    'Id' = $Subscription.id;
-                }
-                $Output.add($ParseInformation) | Out-Null
-                $ParseInformation = $null
-            }
+        $CerLocValidation = Test-Path -Path $CertificateLocation -ErrorAction SilentlyContinue
+
+        if(!$CerLocValidation){
+            $CertLocationInvalid = $true
         }
         else {
-            $BearerTokenError = $true
+            $ErrorActionPreference = 'SilentlyContinue'
+            $Flag = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable 
+            $Certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateLocation,$CertificatePassword,$Flag)
+            if($Certificate){
+                $ParseInformation = Get-MsalToken -ClientId $ClientID -TenantId $TenantID -ClientCertificate $Certificate -Scopes 'https://management.core.windows.net//.default'   
+            }
+            else {
+                $CertPasswordInvalid = $true
+            }
+
         }
+        
     }
     end{
         $ErrorActionPreference = "Continue"
-        if($BearerTokenError){
-            Write-Error "Cannot get the bearer token, please first connect by New-RevoAzBearerByCertificate"
+        if($CertLocationInvalid){
+            Write-Error "Can't find the certificate. Please check your path."
+        }
+        elseif ($CertPasswordInvalid) {
+            Write-Error "Certificate password incorrect. Please check the value."
         }
         else{
-            Return $Output
+            New-Variable -Name "RevoAzBearerToken" -Value ($ParseInformation.TokenType + " " + $ParseInformation.AccessToken) -Scope Global -Force -ErrorAction SilentlyContinue
+            New-Variable -Name "RevoAzBearerTokenDetails" -Value $ParseInformation -Scope Global -Force -ErrorAction SilentlyContinue
+            if(!$SecureOutput){
+                Return $ParseInformation.TokenType + " " + $ParseInformation.AccessToken
+            }
         }
     }
 }
@@ -261,40 +293,64 @@ function Get-RevoAzTenants{
             $Headers = @{}
             $Headers.Add("Authorization",$AccessToken)
     
-            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers
-            $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            do{
-                $AzTenants += $WebResponse.value
-                $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
-                $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            }
-            until($null -eq $WebResponse.nextLink)
+            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers -ErrorVariable InvokeError
 
-            $Output = New-Object -TypeName System.Collections.ArrayList
-            if($RevoAzBearerTokenDetails.UserId -like "*@*"){
-                foreach($Tenant in $AzTenants){
-                    $ParseInformation = [pscustomobject]@{
-                        'DisplayName' = $Tenant.displayName;
-                        'DefaultDomain' = $Tenant.defaultDomain;
-                        'TenantId' = $Tenant.tenantId;
-                        'MicrosoftDomain' = ($Tenant.domains | Where-Object {$_ -like "*.onmicrosoft.com" -and $_ -notlike "*mail.onmicrosoft.com"});
-                        'CustomDomains' = (($Tenant.domains | Where-Object {$_ -notlike "*.onmicrosoft.com"} ) -join ",");
-                        'TenantCategory' = $Tenant.tenantCategory;
-                        'Id' = $Tenant.id;
+            if ($InvokeError.Count -gt 0) {
+                switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).error.code){
+                    'ExpiredAuthenticationToken' {
+                        $BearerTokenExpired = $true
                     }
-                    $Output.add($ParseInformation) | Out-Null
-                    $ParseInformation = $null
+                    'AuthenticationFailedInvalidHeader'{
+                        $BearerTokenInvalidHeader  = $true
+                    }
+                    'AuthenticationFailed'{
+                        $BearerTokenFailed  = $true
+                    }
+                    default {
+                        $BearerTokenError = $true
+                    }
                 }
             }
-            else{
-                foreach($Tenant in $AzTenants){
-                    $ParseInformation = [pscustomobject]@{
-                        'TenantId' = $Tenant.tenantId;
-                        'TenantCategory' = $Tenant.tenantCategory;
-                        'Id' = $Tenant.id;
+            else {
+                $WebResponse = $WebRequest.Content | ConvertFrom-Json
+                if($null -ne $WebResponse.nextLink){
+                    do{
+                        $AzTenants += $WebResponse.value
+                        $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
+                        $WebResponse = $WebRequest.Content | ConvertFrom-Json
                     }
-                    $Output.add($ParseInformation) | Out-Null
-                    $ParseInformation = $null
+                    until($null -eq $WebResponse.nextLink)
+                }
+                else {
+                    $AzTenants += $WebResponse.value
+                }
+
+                $Output = New-Object -TypeName System.Collections.ArrayList
+                if($RevoAzBearerTokenDetails.UserId -like "*@*"){
+                    foreach($Tenant in $AzTenants){
+                        $ParseInformation = [pscustomobject]@{
+                            'DisplayName' = $Tenant.displayName;
+                            'DefaultDomain' = $Tenant.defaultDomain;
+                            'TenantId' = $Tenant.tenantId;
+                            'MicrosoftDomain' = ($Tenant.domains | Where-Object {$_ -like "*.onmicrosoft.com" -and $_ -notlike "*mail.onmicrosoft.com"});
+                            'CustomDomains' = (($Tenant.domains | Where-Object {$_ -notlike "*.onmicrosoft.com"} ) -join ",");
+                            'TenantCategory' = $Tenant.tenantCategory;
+                            'Id' = $Tenant.id;
+                        }
+                        $Output.add($ParseInformation) | Out-Null
+                        $ParseInformation = $null
+                    }
+                }
+                else{
+                    foreach($Tenant in $AzTenants){
+                        $ParseInformation = [pscustomobject]@{
+                            'TenantId' = $Tenant.tenantId;
+                            'TenantCategory' = $Tenant.tenantCategory;
+                            'Id' = $Tenant.id;
+                        }
+                        $Output.add($ParseInformation) | Out-Null
+                        $ParseInformation = $null
+                    }
                 }
             }
             
@@ -305,7 +361,114 @@ function Get-RevoAzTenants{
     }
     end{
         $ErrorActionPreference = "Continue"
-        if($BearerTokenError){
+        if($BearerTokenFailed){
+            Write-Error "Your bearer token was invalid, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenInvalidHeader) {
+            Write-Error "Your bearer token was malformed, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenExpired) {
+            Write-Error "Your bearer token was expired, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif($BearerTokenError){
+            Write-Error "Cannot get the bearer token, please first connect by New-RevoAzBearerByCertificate"
+        }
+        else{
+            Return $Output
+        }
+    }
+}
+
+function Get-RevoAzSubscriptions{
+    param(
+
+    )
+    begin{
+        $ErrorActionPreference = "SilentlyContinue"
+    }
+    process{
+        $AzureManagement = "https://management.azure.com"
+        $ResourceURL = $AzureManagement + "/subscriptions?api-version=2020-01-01"
+
+        $AccessToken = Get-Variable -Name "RevoAzBearerToken" -ValueOnly -ErrorAction SilentlyContinue
+        if($null -ne $AccessToken){
+            $Headers = @{}
+            $Headers.Add("Authorization",$AccessToken)
+    
+            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers -ErrorVariable InvokeError
+
+            if ($InvokeError.Count -gt 0) {
+                switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).error.code){
+                    'ExpiredAuthenticationToken' {
+                        $BearerTokenExpired = $true
+                    }
+                    'AuthenticationFailedInvalidHeader'{
+                        $BearerTokenInvalidHeader  = $true
+                    }
+                    'AuthenticationFailed'{
+                        $BearerTokenFailed  = $true
+                    }
+                    default {
+                        $BearerTokenError = $true
+                    }
+                }
+            }
+            else{
+                $WebResponse = $WebRequest.Content | ConvertFrom-Json
+
+                if($null -ne $WebResponse.nextLink){
+                    do{
+                        $AzSubscriptions += $WebResponse.value
+                        $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
+                        $WebResponse = $WebRequest.Content | ConvertFrom-Json
+                    }
+                    until($null -eq $WebResponse.nextLink)
+                }
+                else {
+                    $AzSubscriptions += $WebResponse.value
+                }
+    
+                $Output = New-Object -TypeName System.Collections.ArrayList
+                foreach($Subscription in $AzSubscriptions){
+                    if($null -eq $Subscription.managedByTenants.TenantId){
+                        $IsManaged = $false;
+                    }
+                    else{
+                        $IsManaged = $true;
+                    }
+                    $ParseInformation = [pscustomobject]@{
+                        'AuthorizationSource' = $Subscription.authorizationSource;
+                        'SubscriptionId' = $Subscription.subscriptionId;
+                        'TenantId' = $Subscription.tenantId;
+                        'DisplayName' = $Subscription.displayName;
+                        'State' = $Subscription.state;
+                        'LocationPlacementId' = $Subscription.subscriptionPolicies.locationPlacementId;
+                        'QuotaId' = $Subscription.subscriptionPolicies.quotaId;
+                        'SpendingLimit' = $Subscription.subscriptionPolicies.spendingLimit;
+                        'Id' = $Subscription.id;
+                        'IsManaged' = $IsManaged;
+                    }
+                    $Output.add($ParseInformation) | Out-Null
+                    $ParseInformation = $null
+                }
+            }
+        }
+        else {
+            $BearerTokenError = $true
+        }
+    }
+    end{
+        $ErrorActionPreference = "Continue"
+        if($BearerTokenFailed){
+            Write-Error "Your bearer token was invalid, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenInvalidHeader) {
+            Write-Error "Your bearer token was malformed, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenExpired) {
+            Write-Error "Your bearer token was expired, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif($BearerTokenError){
             Write-Error "Cannot get the bearer token, please first connect by New-RevoAzBearerByCertificate"
         }
         else{
@@ -332,31 +495,56 @@ function Get-RevoAzLocations{
             $Headers = @{}
             $Headers.Add("Authorization",$AccessToken)
     
-            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers
-            $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            do{
-                $AzLocations += $WebResponse.value
-                $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
-                $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            }
-            until($null -eq $WebResponse.nextLink)
+            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers -ErrorVariable InvokeError
 
-            $Output = New-Object -TypeName System.Collections.ArrayList
-            foreach($Location in $AzLocations){
-                $ParseInformation = [pscustomobject]@{
-                    'Name' = $Location.name;
-                    'DisplayName' = $Location.displayName;
-                    'RegionalDisplayName' = $Location.regionalDisplayName;
-                    'RegionType' = $Location.metadata.regionType;
-                    'RegionCategory' = $Location.metadata.regionCategory;
-                    'GeographyGroup' = $Location.metadata.geographyGroup;
-                    'Longitude' = $Location.metadata.longitude;
-                    'Latitude' = $Location.metadata.latitude;
-                    'PhysicalLocation' = $Location.metadata.physicalLocation;
-                    'PairedRegionName' = ($Location.metadata.pairedRegion.name -Join ",");
-                } 
-                $Output.add($ParseInformation) | Out-Null
-                $ParseInformation = $null
+            if ($InvokeError.Count -gt 0) {
+                switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).error.code){
+                    'ExpiredAuthenticationToken' {
+                        $BearerTokenExpired = $true
+                    }
+                    'AuthenticationFailedInvalidHeader'{
+                        $BearerTokenInvalidHeader  = $true
+                    }
+                    'AuthenticationFailed'{
+                        $BearerTokenFailed  = $true
+                    }
+                    default {
+                        $BearerTokenError = $true
+                    }
+                }
+            }
+            else{
+                $WebResponse = $WebRequest.Content | ConvertFrom-Json
+                if($null -ne $WebResponse.nextLink){
+                    do{
+                        $AzLocations += $WebResponse.value
+                        $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
+                        $WebResponse = $WebRequest.Content | ConvertFrom-Json
+                    }
+                    until($null -eq $WebResponse.nextLink)
+                }
+                else {
+                    $AzLocations += $WebResponse.value
+                }
+
+                $Output = New-Object -TypeName System.Collections.ArrayList
+                foreach($Location in $AzLocations){
+                    $ParseInformation = [pscustomobject]@{
+                        'Name' = $Location.name;
+                        'DisplayName' = $Location.displayName;
+                        'RegionalDisplayName' = $Location.regionalDisplayName;
+                        'RegionType' = $Location.metadata.regionType;
+                        'RegionCategory' = $Location.metadata.regionCategory;
+                        'GeographyGroup' = $Location.metadata.geographyGroup;
+                        'Longitude' = $Location.metadata.longitude;
+                        'Latitude' = $Location.metadata.latitude;
+                        'PhysicalLocation' = $Location.metadata.physicalLocation;
+                        'PairedRegionName' = ($Location.metadata.pairedRegion.name -Join ",");
+                        'PairedRegionId' = ($Location.metadata.pairedRegion.Id -Join ",");
+                    } 
+                    $Output.add($ParseInformation) | Out-Null
+                    $ParseInformation = $null
+                }
             }
         }
         else {
@@ -365,7 +553,16 @@ function Get-RevoAzLocations{
     }
     end{
         $ErrorActionPreference = "Continue"
-        if($BearerTokenError){
+        if($BearerTokenFailed){
+            Write-Error "Your bearer token was invalid, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenInvalidHeader) {
+            Write-Error "Your bearer token was malformed, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenExpired) {
+            Write-Error "Your bearer token was expired, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif($BearerTokenError){
             Write-Error "Cannot get the bearer token, please first connect by New-RevoAzBearerByCertificate"
         }
         else{
@@ -392,37 +589,59 @@ function Get-RevoAzResourceGroups{
             $Headers = @{}
             $Headers.Add("Authorization",$AccessToken)
     
-            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers
-            $WebResponse = $WebRequest.Content | ConvertFrom-Json
-            do{
-                $AzResourceGroups += $WebResponse.value
-                $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
-                $WebResponse = $WebRequest.Content | ConvertFrom-Json
+            $WebRequest = Invoke-WebRequest -Method Get -Uri $ResourceURL -Headers $Headers -ErrorVariable InvokeError
+            if ($InvokeError.Count -gt 0) {
+                switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).error.code){
+                    'ExpiredAuthenticationToken' {
+                        $BearerTokenExpired = $true
+                    }
+                    'AuthenticationFailedInvalidHeader'{
+                        $BearerTokenInvalidHeader  = $true
+                    }
+                    'AuthenticationFailed'{
+                        $BearerTokenFailed  = $true
+                    }
+                    default {
+                        $BearerTokenError = $true
+                    }
+                }
             }
-            until($null -eq $WebResponse.nextLink)
+            else{
+                $WebResponse = $WebRequest.Content | ConvertFrom-Json
+                if($null -ne $WebResponse.nextLink){
+                    do{
+                        $AzResourceGroups += $WebResponse.value
+                        $WebRequest = Invoke-WebRequest -Method Get -Uri $WebResponse.nextLink -Headers $Headers
+                        $WebResponse = $WebRequest.Content | ConvertFrom-Json
+                    }
+                    until($null -eq $WebResponse.nextLink)
+                }
+                else {
+                    $AzResourceGroups += $WebResponse.value
+                }
 
-            $Output = New-Object -TypeName System.Collections.ArrayList
-            foreach($ResourceGroup in $AzResourceGroups){
-                
-                if($null -eq $ResourceGroup.tags){
-                    $IsTagged = $false
-                }
-                else{
-                    $IsTagged = $true
-                }
+                $Output = New-Object -TypeName System.Collections.ArrayList
+                foreach($ResourceGroup in $AzResourceGroups){
+                    
+                    if($null -eq $ResourceGroup.tags){
+                        $IsTagged = 'Untagged'
+                    }
+                    else{
+                        $IsTagged = 'Tagged'
+                    }
 
-                $ParseInformation = [pscustomobject]@{
-                    'Name' = $ResourceGroup.name;
-                    'Location' = $ResourceGroup.location;
-                    'ProvisioningState' = $ResourceGroup.properties.provisioningState
-                    'IsTagged' = $IsTagged;
-                    'Tags' = ([string]$ResourceGroup.tags -replace "@{" -replace "}");                    
-                    'Type' = $ResourceGroup.type;
-                    'Id' = $ResourceGroup.id;
-                    'SubscriptionId' = (($Resource.id -split "/")[2]);
+                    $ParseInformation = [pscustomobject]@{
+                        'Name' = $ResourceGroup.name;
+                        'Location' = $ResourceGroup.location;
+                        'IsTagged' = $IsTagged;
+                        'Tags' = ($ResourceGroup.tags | Measure-Object).Count;
+                        'Type' = $ResourceGroup.type;
+                        'Id' = $ResourceGroup.id;
+                        'SubscriptionId' = (($ResourceGroup.id -split "/")[2]);
+                    }
+                    $Output.add($ParseInformation) | Out-Null
+                    $ParseInformation = $null
                 }
-                $Output.add($ParseInformation) | Out-Null
-                $ParseInformation = $null
             }
         }
         else {
@@ -431,7 +650,16 @@ function Get-RevoAzResourceGroups{
     }
     end{
         $ErrorActionPreference = "Continue"
-        if($BearerTokenError){
+        if($BearerTokenFailed){
+            Write-Error "Your bearer token was invalid, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenInvalidHeader) {
+            Write-Error "Your bearer token was malformed, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif ($BearerTokenExpired) {
+            Write-Error "Your bearer token was expired, please reconnect with New-RevoAzBearerByCertificate"
+        }
+        elseif($BearerTokenError){
             Write-Error "Cannot get the bearer token, please first connect by New-RevoAzBearerByCertificate"
         }
         else{
@@ -439,6 +667,17 @@ function Get-RevoAzResourceGroups{
         }
     }
 }
+
+#-------------------------------------------------------------------------------------------
+
+
+
+#-------------------------------------------------------------------------------------------
+
+
+
+
+
 
 function Get-RevoAzResources{
     param(
