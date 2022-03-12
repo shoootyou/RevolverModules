@@ -30,7 +30,7 @@ CompanyName = 'Revolver Corp'
 Copyright = '(c) Rodolfo Castelo Mendez. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'Revolver Module for Microsoft Partner - Module for obtaining information from Microsoft Partner using REST API (Read Only)'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '6.0'
