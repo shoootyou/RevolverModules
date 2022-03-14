@@ -1,7 +1,6 @@
 function New-RevoPartnerAccess{
     param(
         [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
-        [parameter(Mandatory=$false, ParameterSetName = "UserAuthentication")]
         [string]$TenantID,
         [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
         [string]$ClientID,
@@ -10,10 +9,15 @@ function New-RevoPartnerAccess{
         [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
         [securestring]$CertificatePassword,
         [parameter(Mandatory=$false, ParameterSetName = "ServicePrincipal")]
-        [switch]$SecureOutput
+        [switch]$SecureOutput,
+        [parameter(Mandatory=$false, ParameterSetName = "ServicePrincipal")]
+        [switch]$ForceRefresh,
+        [parameter(Mandatory=$false, ParameterSetName = "ServicePrincipal")]
+        [switch]$ClearToken
     )
     begin{
         $ErrorActionPreference = "SilentlyContinue"
+
     }
     process{
 
@@ -24,6 +28,12 @@ function New-RevoPartnerAccess{
         }
         else{
             Import-Module -Name MSAL.PS -Scope CurrentUser
+        }
+        
+        if($ClearToken){
+            Remove-Variable -Name RevoPartnerBearerToken -Force -ErrorAction SilentlyContinue
+            Remove-Variable -Name RevoPartnerBearerTokenDetails -Force -ErrorAction SilentlyContinue
+            Clear-MsalTokenCache -ErrorAction SilentlyContinue
         }
 
         $CerLocValidation = Test-Path -Path $CertificateLocation -ErrorAction SilentlyContinue
@@ -36,7 +46,13 @@ function New-RevoPartnerAccess{
             $Flag = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable 
             $Certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateLocation,$CertificatePassword,$Flag)
             if($Certificate){
-                $ParseInformation = Get-MsalToken -ClientId $ClientID -TenantId $TenantID -ClientCertificate $Certificate -Scopes 'https://graph.windows.net/.default'   
+                $BearerValue = Get-Variable -Name "RevoPartnerBearerToken" -ValueOnly -ErrorAction SilentlyContinue
+                if($ForceRefresh -and $BearerValue){
+                    $ParseInformation = Get-MsalToken -ClientId $ClientID -TenantId $TenantID -ClientCertificate $Certificate -Scopes 'https://graph.windows.net/.default' -ForceRefresh
+                }
+                else{
+                    $ParseInformation = Get-MsalToken -ClientId $ClientID -TenantId $TenantID -ClientCertificate $Certificate -Scopes 'https://graph.windows.net/.default'
+                }
             }
             else {
                 $CertPasswordInvalid = $true
@@ -66,12 +82,22 @@ function New-RevoPartnerAccess{
 function Get-RevoPartnerResources{
     param(
         [parameter(Mandatory=$true, ParameterSetName = "Predefined")]
-        [ValidateSet("Customers","PartnerProfile", IgnoreCase = $true)]
+        [ValidateSet("Customers","PartnerProfile", "Subscriptions", IgnoreCase = $true)]
         [string]$Resource,
         [parameter(Mandatory=$true, ParameterSetName = "Custom")]
-        [string]$CustomURL
+        [string]$CustomURL,
+        [parameter(ParameterSetName = "Predefined")]
+        [ValidateScript({$Resource -eq 'Subscriptions'},ErrorMessage = "CustomerID parameters it's only available on Subscriptions resource.")]
+        [ValidatePattern('^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$',ErrorMessage = "CustomerID must be the GUID of the Customer Tenant ID.")]
+        [string]$CustomerID
+        
     )
     begin{
+        $ErrorActionPreference = "Stop"
+        if($Resource -eq 'Subscriptions' -and !$CustomerID){
+            Write-Error "Customer Tenant Id must be send by parameter CustomerID. Please validate and try again."
+            break
+        }
         $ErrorActionPreference = "SilentlyContinue"
     }
     process{
@@ -84,6 +110,7 @@ function Get-RevoPartnerResources{
             switch ($Resource) {
                 Customers { $ResourceURL = "/customers" }
                 PartnerProfile { $ResourceURL = "/profiles/mpn" }
+                Subscriptions { $ResourceURL = "/customers/$CustomerID/subscriptions" }
                 Default { $ResourceURL = "/profiles/mpn" }
             }
         }
@@ -101,21 +128,28 @@ function Get-RevoPartnerResources{
 
             if ($InvokeError.Count -gt 0) {
                 if($InvokeError.ErrorRecord.ToString() -like "This resource can't be accessed by application credentials."){
-                    $BearerNotAuthorized = $true
+                    $ModuleError = "This resource can't be accessed by application credentials. Try something diferent or use another credentials."
+                }
+                elseif ($InvokeError.ErrorRecord.ErrorDetails) {
+                    switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).code){
+                        20002 { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).description }
+                        403 { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).description }
+                        default { $ModuleError = "Cannot access to the resource. Please try with other resource." }
+                    }
                 }
                 else{
                     switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).error.code){
                         'ExpiredAuthenticationToken' {
-                            $BearerTokenExpired = $true
+                            $ModuleError = "Your bearer token was expired, please reconnect with New-RevoPartnerAccess"
                         }
                         'AuthenticationFailedInvalidHeader'{
-                            $BearerTokenInvalidHeader  = $true
+                            $ModuleError = "Your bearer token was malformed, please reconnect with New-RevoPartnerAccess"
                         }
                         'AuthenticationFailed'{
-                            $BearerTokenFailed  = $true
+                            $ModuleError = "Your bearer token was invalid, please reconnect with New-RevoPartnerAccess"
                         }
                         default {
-                            $BearerTokenError = $true
+                            $ModuleError = "Cannot get the bearer token, please first connect by New-RevoPartnerAccess"
                         }
                     }
                 }
@@ -134,25 +168,13 @@ function Get-RevoPartnerResources{
             }
         }
         else {
-            $BearerTokenError = $true
+            $ModuleError = "Cannot get the bearer token, please first connect by New-RevoPartnerAccess"
         }
     }
     end{
         $ErrorActionPreference = "Continue"
-        if($BearerNotAuthorized){
-            Write-Error "This resource can't be accessed by application credentials. Try something diferent or use another credentials."
-        }
-        elseif($BearerTokenFailed){
-            Write-Error "Your bearer token was invalid, please reconnect with New-RevoPartnerAccess"
-        }
-        elseif ($BearerTokenInvalidHeader) {
-            Write-Error "Your bearer token was malformed, please reconnect with New-RevoPartnerAccess"
-        }
-        elseif ($BearerTokenExpired) {
-            Write-Error "Your bearer token was expired, please reconnect with New-RevoPartnerAccess"
-        }
-        elseif($BearerTokenError){
-            Write-Error "Cannot get the bearer token, please first connect by New-RevoPartnerAccess"
+        if($ModuleError){
+            Write-Error $ModuleError
         }
         else{
             Return $Output
