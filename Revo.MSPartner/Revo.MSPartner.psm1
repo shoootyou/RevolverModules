@@ -108,7 +108,7 @@ function New-RevoPartnerAccessByToken{
         New-Variable -Name "RevoPartnerBearerToken" -Value ($ParseInformation.token_type + " " + $ParseInformation.access_token) -Scope Global -Force -ErrorAction SilentlyContinue
         New-Variable -Name "RevoPartnerBearerTokenDetails" -Value $ParseInformation -Scope Global -Force -ErrorAction SilentlyContinue
         if(!$SecureOutput){
-            Return $ParseInformation.TokenType + " " + $ParseInformation.AccessToken
+            Return $ParseInformation.token_type + " " + $ParseInformation.access_token
         }
     }
 }
@@ -116,14 +116,18 @@ function New-RevoPartnerAccessByToken{
 function Get-RevoPartnerResources{
     param(
         [parameter(Mandatory=$true, ParameterSetName = "Predefined")]
-        [ValidateSet("Customers","PartnerProfile", "Subscriptions", IgnoreCase = $true)]
+        [ValidateSet("Customers","PartnerProfile", "Subscriptions","SupportProfile","Organization","ResellerRequestLink","Roles","RoleMember", IgnoreCase = $true)]
         [string]$Resource,
         [parameter(Mandatory=$true, ParameterSetName = "Custom")]
         [string]$CustomURL,
         [parameter(ParameterSetName = "Predefined")]
         [ValidateScript({$Resource -eq 'Subscriptions'},ErrorMessage = "CustomerID parameters it's only available on Subscriptions resource.")]
         [ValidatePattern('^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$',ErrorMessage = "CustomerID must be the GUID of the Customer Tenant ID.")]
-        [string]$CustomerID
+        [string]$CustomerID,
+        [parameter(ParameterSetName = "Predefined")]
+        [ValidateScript({$Resource -eq 'RoleMember'},ErrorMessage = "RoleID parameters it's only available on RoleMember resource.")]
+        [ValidatePattern('^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$',ErrorMessage = "RoleID must be the GUID of the Role.")]
+        [string]$RoleID
         
     )
     begin{
@@ -144,7 +148,12 @@ function Get-RevoPartnerResources{
             switch ($Resource) {
                 Customers { $ResourceURL = "/customers" }
                 PartnerProfile { $ResourceURL = "/profiles/mpn" }
+                SupportProfile { $ResourceURL = "/profiles/support" }
+                Organization {$ResourceURL = '/profiles/organization'}
+                ResellerRequestLink {$ResourceURL = '/customers/relationshiprequests'}
                 Subscriptions { $ResourceURL = "/customers/$CustomerID/subscriptions" }
+                Roles { $ResourceURL = "/roles" }
+                RoleMember { $ResourceURL = "/roles/$RoleID/usermembers" }
                 Default { $ResourceURL = "/profiles/mpn" }
             }
         }
@@ -168,7 +177,7 @@ function Get-RevoPartnerResources{
                     switch(($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).code){
                         20002 { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).description }
                         403 { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).description }
-                        default { $ModuleError = "Cannot access to the resource. Please try with other resource." }
+                        default { $ModuleError = "Undetermined error. Please try with other resource." }
                     }
                 }
                 else{
@@ -183,7 +192,7 @@ function Get-RevoPartnerResources{
                             $ModuleError = "Your bearer token was invalid, please reconnect with New-RevoPartnerAccess"
                         }
                         default {
-                            $ModuleError = "Cannot get the bearer token, please first connect by New-RevoPartnerAccess"
+                            $ModuleError = "Undetermined error. Please try with other resource or reconnect."
                         }
                     }
                 }
