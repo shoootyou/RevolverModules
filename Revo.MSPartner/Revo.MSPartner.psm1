@@ -79,6 +79,40 @@ function New-RevoPartnerAccess{
     }
 }
 
+function New-RevoPartnerAccessByToken{
+    param(
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [string]$ClientID,
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [string]$ResponseToken,
+        [parameter(Mandatory=$true, ParameterSetName = "ServicePrincipal")]
+        [string]$RefreshToken,
+        [parameter(Mandatory=$false, ParameterSetName = "ServicePrincipal")]
+        [switch]$SecureOutput
+    )
+    begin{
+        $ErrorActionPreference = "SilentlyContinue"
+
+    }
+    process{
+
+        $Internal_AuthHost = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+        $Internal_ContentType = 'application/x-www-form-urlencoded'
+        $Internal_Body = "client_id=$ENV:HS_AppId&scope=https://api.partnercenter.microsoft.com/user_impersonation%20offline_access&code=$ENV:HS_ResponseToken&grant_type=refresh_token&refresh_token=$ENV:HS_RefreshToken"
+        $Internal_AccessToken = Invoke-WebRequest -Uri $Internal_AuthHost -ContentType $Internal_ContentType -Method POST -Body $Internal_Body
+        $ParseInformation = ($Internal_AccessToken.Content | ConvertFrom-Json) 
+        
+    }
+    end{
+        $ErrorActionPreference = "Continue"
+        New-Variable -Name "RevoPartnerBearerToken" -Value ($ParseInformation.token_type + " " + $ParseInformation.access_token) -Scope Global -Force -ErrorAction SilentlyContinue
+        New-Variable -Name "RevoPartnerBearerTokenDetails" -Value $ParseInformation -Scope Global -Force -ErrorAction SilentlyContinue
+        if(!$SecureOutput){
+            Return $ParseInformation.TokenType + " " + $ParseInformation.AccessToken
+        }
+    }
+}
+
 function Get-RevoPartnerResources{
     param(
         [parameter(Mandatory=$true, ParameterSetName = "Predefined")]
