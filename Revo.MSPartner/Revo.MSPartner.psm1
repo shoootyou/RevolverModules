@@ -123,6 +123,10 @@ function New-RevoPartnerAccessByToken {
 function Get-RevoPartnerResources {
     param(
         [parameter(Mandatory = $true, ParameterSetName = "Predefined")]
+        [parameter(Mandatory = $true, ParameterSetName = "Subscriptions")]
+        [parameter(Mandatory = $true, ParameterSetName = "RoleMember")]
+        [parameter(Mandatory = $true, ParameterSetName = "InvoiceDownload")]
+        [parameter(Mandatory = $true, ParameterSetName = "InvoiceLineItems")]
         [ValidateSet(
             "Customers",
             "PartnerProfile",
@@ -133,24 +137,33 @@ function Get-RevoPartnerResources {
             "Roles",
             "RoleMember",
             "Invoices",
-            "InvoiceDownload", IgnoreCase = $true)]
+            "InvoiceDownload",
+            "InvoiceLineItems", IgnoreCase = $true)]
         [string]$Resource,
         [parameter(Mandatory = $true, ParameterSetName = "Custom")]
         [string]$CustomURL,
-        [parameter(ParameterSetName = "Predefined")]
+        [parameter(Mandatory = $true, ParameterSetName = "Subscriptions")]
         [ValidateScript({ $Resource -eq 'Subscriptions' }, ErrorMessage = "CustomerID parameters it's only available on Subscriptions resource.")]
         [ValidatePattern('^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$', ErrorMessage = "CustomerID must be the GUID of the Customer Tenant ID.")]
         [string]$CustomerID,
-        [parameter(ParameterSetName = "Predefined")]
+        [parameter(Mandatory = $true, ParameterSetName = "RoleMember")]
         [ValidateScript({ $Resource -eq 'RoleMember' }, ErrorMessage = "RoleID parameters it's only available on RoleMember resource.")]
         [ValidatePattern('^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$', ErrorMessage = "RoleID must be the GUID of the Role.")]
         [string]$RoleID,
-        [parameter(ParameterSetName = "Predefined")]
-        [ValidateScript({ $Resource -eq 'InvoiceDownload' }, ErrorMessage = "InvoiceID parameters it's only available on InvoiceDownload resource.")]
+        [parameter(Mandatory = $true, ParameterSetName = "InvoiceDownload")]
+        [parameter(Mandatory = $true, ParameterSetName = "InvoiceLineItems")]
+        [ValidateScript({ $Resource -eq 'InvoiceDownload' -or $Resource -eq 'InvoiceLineItems' }, ErrorMessage = "InvoiceID parameters it's only available on InvoiceDownload resource.")]
         [string]$InvoiceID,
         [parameter(ParameterSetName = "Predefined")]
+        [parameter(Mandatory = $true, ParameterSetName = "InvoiceDownload")]
         [ValidateScript({ $Resource -eq 'InvoiceDownload' }, ErrorMessage = "DownloadPath parameters it's only available on InvoiceDownload resource.")]
-        [string]$DownloadPath
+        [string]$DownloadPath,
+        [parameter(Mandatory = $true, ParameterSetName = "InvoiceLineItems")]
+        [ValidateScript({ $Resource -eq 'InvoiceLineItems' }, ErrorMessage = "InlineType parameters it's only available on InvoiceLineItems resource.")]
+        [ValidateSet(
+            "Recurring",
+            "OneTime", IgnoreCase = $true)]
+        [string]$InlineType
         
     )
     begin {
@@ -179,6 +192,14 @@ function Get-RevoPartnerResources {
                 RoleMember { $ResourceURL = "/roles/$RoleID/usermembers" }
                 Invoices { $ResourceURL = "/invoices" }
                 InvoiceDownload { $ResourceURL = "/invoices/$InvoiceID/documents/statement" }
+                InvoiceLineItems { 
+                    if ($InlineType -eq "Recurring") {
+                        $ResourceURL = "/invoices/$InvoiceID/lineitems?provider=office&invoicelineitemtype=billinglineitems&size=2000"
+                    }
+                    else {
+                        $ResourceURL = "/invoices/$InvoiceID/lineitems?provider=onetime&invoicelineitemtype=billinglineitems&size=2000"
+                    }
+                }
                 Default { $ResourceURL = "/profiles/mpn" }
             }
         }
@@ -238,7 +259,9 @@ function Get-RevoPartnerResources {
                     }
                 }
                 else {
-                    $ModuleError = "Nothings returns. Try again."
+                    if ($Resource -ne 'InvoiceDownload') {
+                        $ModuleError = "Nothings returns. Try again."
+                    }
                 }
             }
         }
