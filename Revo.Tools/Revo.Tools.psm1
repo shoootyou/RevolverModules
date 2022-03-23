@@ -66,7 +66,7 @@ function New-RevoHash{
     }
     process{
         $hasher = [System.Security.Cryptography.HashAlgorithm]::Create('sha256')
-        $hash = $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($TableInformation))
+        $hash = $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Value))
         $hashString = [System.BitConverter]::ToString($hash)
     }
     end{
