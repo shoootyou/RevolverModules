@@ -23,6 +23,7 @@ function Get-RevoFreshResources {
         [ValidateSet(
             "VeryFirstTime",
             "Last30Days",
+            "CurrentYear",
             "Last7Days", IgnoreCase = $true)]
         [string]$Since
         
@@ -44,6 +45,7 @@ function Get-RevoFreshResources {
                     switch ($Since) {
                         VeryFirstTime { $ResourceURL = "/tickets?per_page=100&updated_since=1900-01-19" }
                         Last30Days { $ResourceURL = "/tickets?per_page=100&updated_since=" + (Get-Date).AddDays(-30).ToString('yyyy-MM-dd') }
+                        CurrentYear { $ResourceURL = "/tickets?per_page=100&updated_since=" + ((Get-Date).Year.ToString() +'-01-01') }
                         Default { $ResourceURL = "/tickets?per_page=100&updated_since=" + (Get-Date).AddDays(-7).ToString('yyyy-MM-dd') }
                     }
                 }
