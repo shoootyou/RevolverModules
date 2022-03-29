@@ -16,15 +16,19 @@ function Get-RevoFreshResources {
         [ValidateSet(
             "Agents",
             "Groups",
+            "Requesters",
+            "RequesterGroups",
             "Tickets", IgnoreCase = $true)]
         [string]$Resource,
         [parameter(Mandatory = $true, ParameterSetName = "Tickets")]
         [ValidateScript({ $Resource -eq 'Tickets' }, ErrorMessage = "Since parameters it's only available on Tickets resource.")]
         [ValidateSet(
             "VeryFirstTime",
-            "Last30Days",
-            "CurrentYear",
-            "Last7Days", IgnoreCase = $true)]
+            "LastDay",
+            "LastWeek",
+            "LastMonth",
+            "LasyYear", 
+            "CurrentYear", IgnoreCase = $true)]
         [string]$Since
         
     )
@@ -41,12 +45,17 @@ function Get-RevoFreshResources {
             switch ($Resource) {
                 Agents { $ResourceURL = "/agents?per_page=100" }
                 Groups { $ResourceURL = "/groups?per_page=100" }
+                Requesters { $ResourceURL = "/requesters?per_page=100" }
+                RequesterGroups { $ResourceURL = "/requester_groups?per_page=100" }
                 Tickets { 
                     switch ($Since) {
-                        VeryFirstTime { $ResourceURL = "/tickets?per_page=100&updated_since=1900-01-19" }
-                        Last30Days { $ResourceURL = "/tickets?per_page=100&updated_since=" + (Get-Date).AddDays(-30).ToString('yyyy-MM-dd') }
-                        CurrentYear { $ResourceURL = "/tickets?per_page=100&updated_since=" + ((Get-Date).Year.ToString() +'-01-01') }
-                        Default { $ResourceURL = "/tickets?per_page=100&updated_since=" + (Get-Date).AddDays(-7).ToString('yyyy-MM-dd') }
+                        VeryFirstTime { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=1900-01-19" }
+                        LastDay { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=" + (Get-Date).AddDays(-1).ToString('yyyy-MM-dd') }
+                        LastWeek { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=" + (Get-Date).AddDays(-7).ToString('yyyy-MM-dd') }
+                        LastMonth { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=" + (Get-Date).AddDays(-30).ToString('yyyy-MM-dd') }
+                        LasyYear { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=" + (Get-Date).AddDays(-360).ToString('yyyy-MM-dd') }
+                        CurrentYear { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=" + ((Get-Date).Year.ToString() +'-01-01') }
+                        Default { }
                     }
                 }
                 Default { }
@@ -67,8 +76,8 @@ function Get-RevoFreshResources {
             if ($null -ne $WebRequest.Headers.Link) {
                 do {
                     if([int]($WebRequest.Headers.'X-Ratelimit-Remaining'[0]) -lt 10){
-                        Write-Warning "Throttling your request, please wait!"
-                        Start-Sleep -Seconds 60
+                        Write-Warning "============ Throttling your request, please wait! ============"
+                        Start-Sleep -Seconds 90
                     }
                     $WebRequest = Invoke-WebRequest -Method GET -Uri (($WebRequest.Headers.Link -split ";")[0].Replace("<", "").Replace(">", "")) -Authentication Basic -Credential $Credentials -ErrorVariable InvokeError
                     ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
