@@ -18,6 +18,7 @@ function Get-RevoFreshResources {
             "Groups",
             "Requesters",
             "RequesterGroups",
+            "Departments",
             "Tickets", IgnoreCase = $true)]
         [string]$Resource,
         [parameter(Mandatory = $true, ParameterSetName = "Tickets")]
@@ -47,6 +48,7 @@ function Get-RevoFreshResources {
                 Groups { $ResourceURL = "/groups?per_page=100" }
                 Requesters { $ResourceURL = "/requesters?per_page=100" }
                 RequesterGroups { $ResourceURL = "/requester_groups?per_page=100" }
+                Departments { $ResourceURL = "/departments?per_page=100" }
                 Tickets { 
                     switch ($Since) {
                         VeryFirstTime { $ResourceURL = "/tickets?per_page=100&include=stats&updated_since=1900-01-19" }
@@ -67,7 +69,17 @@ function Get-RevoFreshResources {
         $Password = ConvertTo-SecureString 'X' -AsPlainText -Force
         $Username = ConvertFrom-SecureString $APIKey -AsPlainText
         $Credentials = New-Object System.Management.Automation.PSCredential ($Username, $Password)
-        $ResponseRes = ($ResourceURL.Substring(0,$ResourceURL.IndexOf("?")).Replace("/","")).ToLower()
+        if($CustomURL){
+            if($ResourceURL -match '\/\w{0,100}[?]'){
+                $ResponseRes = ($ResourceURL.Substring(1,$ResourceURL.IndexOf("?")-1)).ToLower()
+            }
+            elseif ($ResourceURL -match '\/\w{0,100}') {
+                $ResponseRes = ($ResourceURL.Substring(1,$ResourceURL.Length-1)).ToLower()
+            }
+        }
+        else {
+            $ResponseRes = ($ResourceURL.Substring(0,$ResourceURL.IndexOf("?")).Replace("/","")).ToLower()           
+        }
         
         $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Authentication Basic -Credential $Credentials -ErrorVariable InvokeError
         if($null -ne $WebRequest){
