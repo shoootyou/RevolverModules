@@ -69,21 +69,11 @@ function Get-RevoFreshResources {
         $Password = ConvertTo-SecureString 'X' -AsPlainText -Force
         $Username = ConvertFrom-SecureString $APIKey -AsPlainText
         $Credentials = New-Object System.Management.Automation.PSCredential ($Username, $Password)
-        if($CustomURL){
-            if($ResourceURL -match '\/\w{0,100}[?]'){
-                $ResponseRes = ($ResourceURL.Substring(1,$ResourceURL.IndexOf("?")-1)).ToLower()
-            }
-            elseif ($ResourceURL -match '\/\w{0,100}') {
-                $ResponseRes = ($ResourceURL.Substring(1,$ResourceURL.Length-1)).ToLower()
-            }
-        }
-        else {
-            $ResponseRes = ($ResourceURL.Substring(0,$ResourceURL.IndexOf("?")).Replace("/","")).ToLower()           
-        }
         
         $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Authentication Basic -Credential $Credentials -ErrorVariable InvokeError
         if($null -ne $WebRequest){
             [System.Collections.ArrayList]$Output = @()
+            $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty'}).Name
             ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
             if ($null -ne $WebRequest.Headers.Link) {
                 do {
