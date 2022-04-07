@@ -196,9 +196,9 @@ function Get-RevoPMResources {
             "Resources",
             "Timesheets", IgnoreCase = $true)]
         [string]$Resource,
-        [ValidateScript({ $Resource -eq 'Timesheets' }, ErrorMessage = "ResourceID parameters it's only available on Timesheets resource.")]
+        [ValidateScript({ $Resource -eq 'Timesheets' }, ErrorMessage = "ResourceID parameters it's only available on Timesheets resource. ")]
         [string]$ResourceID,
-        [ValidateScript({ $Resource -eq 'Timesheets' }, ErrorMessage = "ProjectID parameters it's only available on Timesheets resource.")]
+        [ValidateScript({ $Resource -eq 'Timesheets' }, ErrorMessage = "ProjectID parameters it's only available on Timesheets resource. ")]
         [string]$ProjectID
     )
     begin {
