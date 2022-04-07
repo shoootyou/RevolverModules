@@ -182,3 +182,79 @@ function Get-RevoFreshResources {
         }
     }
 }
+
+function Get-RevoPMResources {
+    param(
+        [parameter(Mandatory = $true, ParameterSetName = "Predefined")]
+        [parameter(Mandatory = $true, ParameterSetName = "Custom")]
+        [securestring]$APIKey,
+        [parameter(Mandatory = $true, ParameterSetName = "Custom")]
+        [string]$CustomURL,
+        [parameter(Mandatory = $true, ParameterSetName = "Predefined")]
+        [ValidateSet(
+            "Projects",
+            "Resources",
+            "Timesheets", IgnoreCase = $true)]
+        [string]$Resource,
+        [ValidateScript({ $Resource -eq 'Timesheets' }, ErrorMessage = "ResourceID parameters it's only available on Timesheets resource.")]
+        [string]$ResourceID,
+        [ValidateScript({ $Resource -eq 'Timesheets' }, ErrorMessage = "ProjectID parameters it's only available on Timesheets resource.")]
+        [string]$ProjectID
+    )
+    begin {
+        $ErrorActionPreference = 'SilentlyContinue'
+    }
+    process {
+        $BaseURL = "https://secure.projectmanager.com/api/v1"
+
+        if ($CustomURL) {
+            $ResourceURL = $CustomURL
+        }
+        else {
+            switch ($Resource) {
+                Projects { $ResourceURL = "/projects.json" }
+                Resources { $ResourceURL = "/resources.json" }
+                Timesheets {
+                    if ($null -ne $ResourceID) {
+                        $ResourceURL = "/resources/$ResourceID/timesheets.json"
+                    }
+                    elseif ($null -ne $ProjectID) {
+                        $ResourceURL = "/projects/$ProjectID/timesheets.json"
+                    }
+                }
+                Default { }
+            }
+        }
+
+        $FinalURL = ($BaseURL + $ResourceURL)
+        $APIHeader = ConvertFrom-SecureString $APIKey -AsPlainText
+        $WebHeaders = @{}
+        $WebHeaders.Add("apiKey","$APIHeader")
+
+        $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Headers $WebHeaders -Authentication None -ErrorVariable InvokeError
+        if($null -ne $WebRequest){
+            [System.Collections.ArrayList]$Output = @()
+            $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
+            ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
+        }
+
+        if ($InvokeError.Count -gt 0) {
+            if ($InvokeError.ErrorRecord.ErrorDetails) {
+                switch (($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).code) {
+                    access_denied { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).Message }
+                    default { $ModuleError = "Undetermined error. Please try with other resource." }
+                }
+            }
+        }
+
+    }
+    end {
+        $ErrorActionPreference = "Continue"
+        if ($ModuleError) {
+            Write-Error $ModuleError
+        }
+        else {
+            Return $Output
+        }
+    }
+}
