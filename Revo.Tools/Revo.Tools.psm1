@@ -239,17 +239,24 @@ function Get-RevoPMResources {
         }
 
         if ($InvokeError.Count -gt 0) {
-            if ($InvokeError.ErrorRecord.ErrorDetails) {
-                switch (($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).code) {
-                    access_denied { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).Message }
-                    default { $ModuleError = "Undetermined error. Please try with other resource." }
+            if ($InvokeError.InnerException.Message -like '*409*') {
+                Write-Warning " Retrying...."
+                Start-Sleep -Seconds 5
+                $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Headers $WebHeaders -Authentication None -ErrorVariable InvokeError
+                if($null -ne $WebRequest){
+                    [System.Collections.ArrayList]$Output = @()
+                    $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
+                    ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
                 }
+            }
+            else {
+                $ModuleError = $InvokeError.InnerException.Message
             }
         }
 
     }
     end {
-        $ErrorActionPreference = "Continue"
+        $ErrorActionPreference = "Stop"
         if ($ModuleError) {
             Write-Error $ModuleError
         }
