@@ -240,14 +240,17 @@ function Get-RevoPMResources {
 
         if ($InvokeError.Count -gt 0) {
             if ($InvokeError.InnerException.Message -like '*409*') {
-                Write-Warning " Retrying...."
-                Start-Sleep -Seconds 5
-                $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Headers $WebHeaders -Authentication None -ErrorVariable InvokeError
-                if($null -ne $WebRequest){
-                    [System.Collections.ArrayList]$Output = @()
-                    $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
-                    ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
-                }
+                do {
+                    Write-Warning " Retrying...."
+                    Remove-Variable InvokeError -Force
+                    Start-Sleep -Seconds 10
+                    $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Headers $WebHeaders -Authentication None -ErrorVariable InvokeError
+                    if($null -ne $WebRequest){
+                        [System.Collections.ArrayList]$Output = @()
+                        $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
+                        ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
+                    }
+                } until (!$InvokeError)
             }
             else {
                 $ModuleError = $InvokeError.InnerException.Message
