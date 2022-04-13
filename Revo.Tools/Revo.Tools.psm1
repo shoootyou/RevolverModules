@@ -148,8 +148,8 @@ function Get-RevoFreshResources {
         $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Authentication Basic -Credential $Credentials -ErrorVariable InvokeError
         if($null -ne $WebRequest){
             [System.Collections.ArrayList]$Output = @()
-            $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty'}).Name
-            ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
+            $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 100) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty'}).Name
+            ($WebRequest.Content | ConvertFrom-Json -Depth 100).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
             if ($null -ne $WebRequest.Headers.Link) {
                 do {
                     if([int]($WebRequest.Headers.'X-Ratelimit-Remaining'[0]) -lt 10){
@@ -157,15 +157,15 @@ function Get-RevoFreshResources {
                         Start-Sleep -Seconds 90
                     }
                     $WebRequest = Invoke-WebRequest -Method GET -Uri (($WebRequest.Headers.Link -split ";")[0].Replace("<", "").Replace(">", "")) -Authentication Basic -Credential $Credentials -ErrorVariable InvokeError
-                    ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
+                    ($WebRequest.Content | ConvertFrom-Json -Depth 100).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
                 } until ($null -eq $WebRequest.Headers.Link)
             }
         }
 
         if ($InvokeError.Count -gt 0) {
             if ($InvokeError.ErrorRecord.ErrorDetails) {
-                switch (($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).code) {
-                    access_denied { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 10).Message }
+                switch (($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 100).code) {
+                    access_denied { $ModuleError = ($InvokeError.ErrorRecord.ErrorDetails.Message | ConvertFrom-Json -Depth 100).Message }
                     default { $ModuleError = "Undetermined error. Please try with other resource." }
                 }
             }
@@ -234,8 +234,8 @@ function Get-RevoPMResources {
         $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Headers $WebHeaders -Authentication None -ErrorVariable InvokeError
         if($null -ne $WebRequest){
             [System.Collections.ArrayList]$Output = @()
-            $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
-            ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
+            $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 100) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
+            ($WebRequest.Content | ConvertFrom-Json -Depth 100).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
         }
 
         if ($InvokeError.Count -gt 0) {
@@ -247,8 +247,8 @@ function Get-RevoPMResources {
                     $WebRequest = Invoke-WebRequest -Method GET -Uri $FinalURL -Headers $WebHeaders -Authentication None -ErrorVariable InvokeError
                     if($null -ne $WebRequest){
                         [System.Collections.ArrayList]$Output = @()
-                        $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 10) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
-                        ($WebRequest.Content | ConvertFrom-Json -Depth 10).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
+                        $ResponseRes = (($WebRequest.Content | ConvertFrom-Json -Depth 100) | Get-Member | Where-Object {$_.MemberType -eq 'NoteProperty' -and $_.Name -ne 'status'}).Name
+                        ($WebRequest.Content | ConvertFrom-Json -Depth 100).$ResponseRes | ForEach-Object { $Output.Add($_) | Out-Null }
                     }
                 } until (!$InvokeError)
             }
